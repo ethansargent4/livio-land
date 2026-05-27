@@ -311,13 +311,16 @@ function render() {
 
   drawLayout();
   boundary.forEach((point, index) => addMarker(point, index, "#06adf5", (next) => boundary[index] = next, () => boundary.splice(index, 1)));
+  addEdgeMarkers(boundary, "#7dd3fc", (insertIndex, point) => boundary.splice(insertIndex, 0, point), true);
   exclusions.forEach((path, pathIndex) => path.forEach((point, index) => {
     addMarker(point, index, "#ef4444", (next) => path[index] = next, () => {
       exclusions[pathIndex].splice(index, 1);
       exclusions = exclusions.filter((item) => item.length >= 3);
     });
   }));
+  exclusions.forEach((path, pathIndex) => addEdgeMarkers(path, "#fca5a5", (insertIndex, point) => exclusions[pathIndex].splice(insertIndex, 0, point), true));
   draftExclusion.forEach((point, index) => addMarker(point, index, "#f97316", (next) => draftExclusion[index] = next, () => draftExclusion.splice(index, 1)));
+  addEdgeMarkers(draftExclusion, "#fdba74", (insertIndex, point) => draftExclusion.splice(insertIndex, 0, point), false);
   writeMetrics();
 }
 
@@ -550,6 +553,59 @@ function addMarker(point, index, color, onDrag, onRemove) {
   markers.push(marker);
 }
 
+function addEdgeMarkers(path, color, onInsert, closed) {
+  const edgeCount = closed ? path.length : Math.max(0, path.length - 1);
+  if (path.length < 2 || edgeCount < 1) return;
+
+  for (let index = 0; index < edgeCount; index++) {
+    const nextIndex = (index + 1) % path.length;
+    const insertIndex = index + 1;
+    let insertedIndex = null;
+    const marker = new google.maps.Marker({
+      map,
+      position: midpoint(path[index], path[nextIndex]),
+      draggable: true,
+      title: "Add shape point",
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 5,
+        fillColor: color,
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+      },
+    });
+
+    const insertPoint = (point) => {
+      if (insertedIndex !== null) return insertedIndex;
+      onInsert(insertIndex, point);
+      insertedIndex = insertIndex;
+      return insertedIndex;
+    };
+
+    marker.addListener("click", () => {
+      insertPoint(normalizePosition(marker.getPosition()));
+      optimizedLayout = null;
+      render();
+    });
+    marker.addListener("dragstart", () => {
+      isDraggingMarker = true;
+      insertPoint(normalizePosition(marker.getPosition()));
+    });
+    marker.addListener("dragend", (event) => {
+      if (event.latLng && insertedIndex !== null) {
+        path[insertedIndex] = normalize(event.latLng);
+        optimizedLayout = null;
+        render();
+      }
+      window.setTimeout(() => {
+        isDraggingMarker = false;
+      }, 0);
+    });
+    markers.push(marker);
+  }
+}
+
 function drawLayout() {
   if (!optimizedLayout) return;
   addLayoutPolygon(optimizedLayout.pad, "#f59e0b", "#fbbf24", 0.18);
@@ -650,6 +706,20 @@ function normalize(latLng) {
   return {
     lat: Number(latLng.lat().toFixed(7)),
     lng: Number(latLng.lng().toFixed(7)),
+  };
+}
+
+function normalizePosition(latLng) {
+  return {
+    lat: Number(latLng.lat().toFixed(7)),
+    lng: Number(latLng.lng().toFixed(7)),
+  };
+}
+
+function midpoint(start, end) {
+  return {
+    lat: Number(((start.lat + end.lat) / 2).toFixed(7)),
+    lng: Number(((start.lng + end.lng) / 2).toFixed(7)),
   };
 }
 
