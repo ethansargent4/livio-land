@@ -18,9 +18,10 @@ const buildingInputs = {
   rowGapFt: document.getElementById("rowGapFt"),
 };
 const LOCAL_KEY = "livio-grid-google-maps-api-key";
+const FEET_PER_METER = 3.280839895;
 const DEFAULT_BUILDING_CONFIG = {
-  firstWidthFt: 30,
-  additionalWidthFt: 25,
+  firstWidthFt: metersToFeet(10),
+  additionalWidthFt: metersToFeet(9),
   connectedBuildings: 3,
   buildingLengthFt: 320,
   rows: 10,
@@ -269,10 +270,7 @@ function render() {
   }
 
   clearOverlays();
-  const paths = [
-    boundary,
-    ...exclusions.map((path) => orientHoleOppositeBoundary(boundary, path)),
-  ].filter((path) => path.length >= 3);
+  const paths = currentParcelPaths();
 
   parcelPolygon = new google.maps.Polygon({
     map,
@@ -326,8 +324,8 @@ function render() {
 
 function getBuildingConfig() {
   return {
-    firstWidthFt: readPositiveNumber(buildingInputs.firstWidthFt, DEFAULT_BUILDING_CONFIG.firstWidthFt),
-    additionalWidthFt: readNonNegativeNumber(buildingInputs.additionalWidthFt, DEFAULT_BUILDING_CONFIG.additionalWidthFt),
+    firstWidthFt: metersToFeet(readPositiveNumber(buildingInputs.firstWidthFt, feetToMeters(DEFAULT_BUILDING_CONFIG.firstWidthFt))),
+    additionalWidthFt: metersToFeet(readNonNegativeNumber(buildingInputs.additionalWidthFt, feetToMeters(DEFAULT_BUILDING_CONFIG.additionalWidthFt))),
     connectedBuildings: readPositiveInteger(buildingInputs.connectedBuildings, DEFAULT_BUILDING_CONFIG.connectedBuildings),
     buildingLengthFt: readPositiveNumber(buildingInputs.buildingLengthFt, DEFAULT_BUILDING_CONFIG.buildingLengthFt),
     rows: readPositiveInteger(buildingInputs.rows, DEFAULT_BUILDING_CONFIG.rows),
@@ -336,8 +334,8 @@ function getBuildingConfig() {
 }
 
 function applyBuildingInputs() {
-  buildingInputs.firstWidthFt.value = String(buildingConfig.firstWidthFt);
-  buildingInputs.additionalWidthFt.value = String(buildingConfig.additionalWidthFt);
+  buildingInputs.firstWidthFt.value = formatMeterInput(feetToMeters(buildingConfig.firstWidthFt));
+  buildingInputs.additionalWidthFt.value = formatMeterInput(feetToMeters(buildingConfig.additionalWidthFt));
   buildingInputs.connectedBuildings.value = String(buildingConfig.connectedBuildings);
   buildingInputs.buildingLengthFt.value = String(buildingConfig.buildingLengthFt);
   buildingInputs.rows.value = String(buildingConfig.rows);
@@ -366,6 +364,24 @@ function readPositiveInteger(input, fallback) {
   return Math.max(1, Math.round(readPositiveNumber(input, fallback)));
 }
 
+function metersToFeet(meters) {
+  return meters * FEET_PER_METER;
+}
+
+function feetToMeters(feet) {
+  return feet / FEET_PER_METER;
+}
+
+function formatMeterInput(value) {
+  return Number(value.toFixed(1)).toString();
+}
+
+function formatMeterRange(minFeet, maxFeet) {
+  const minMeters = Math.round(feetToMeters(minFeet));
+  const maxMeters = Math.round(feetToMeters(maxFeet));
+  return `${minMeters}${minMeters === maxMeters ? "" : `-${maxMeters}`} m`;
+}
+
 function writeBuildingMetrics(layout = optimizedLayout) {
   const config = layout?.buildingConfig || buildingConfig;
   const rows = layout?.actualRows || Math.min(config.rows, FIT_SCENARIOS[activeScenario].maxHalls);
@@ -378,7 +394,7 @@ function writeBuildingMetrics(layout = optimizedLayout) {
   const maxLength = Math.max(...rowLengths);
   const clusterText = summarizeRowCounts(clusterCounts);
   setText("buildingFormula", `${rows} row${rows === 1 ? "" : "s"}: ${clusterText}`);
-  setText("buildingWidthMetric", `${Math.round(minWidth)}${Math.round(minWidth) === Math.round(maxWidth) ? "" : `-${Math.round(maxWidth)}`} ft`);
+  setText("buildingWidthMetric", formatMeterRange(minWidth, maxWidth));
   setText("buildingLengthMetric", `${Math.round(minLength)}${Math.round(minLength) === Math.round(maxLength) ? "" : `-${Math.round(maxLength)}`} ft`);
   setText("buildingRowsMetric", rows);
 }
@@ -541,6 +557,16 @@ function addMarker(point, index, color, onDrag, onRemove) {
   });
   marker.addListener("dragstart", () => {
     isDraggingMarker = true;
+    optimizedLayout = null;
+    clearLayoutPolygons();
+  });
+  marker.addListener("drag", (event) => {
+    if (event.latLng) {
+      onDrag(normalize(event.latLng));
+      optimizedLayout = null;
+      refreshShapeOverlays();
+      writeMetrics();
+    }
   });
   marker.addListener("dragend", (event) => {
     if (event.latLng) {
@@ -598,6 +624,18 @@ function addEdgeMarkers(path, color, onInsert, closed) {
     marker.addListener("dragstart", () => {
       isDraggingMarker = true;
       insertPoint(normalizePosition(marker.getPosition()));
+      optimizedLayout = null;
+      clearLayoutPolygons();
+      refreshShapeOverlays();
+      writeMetrics();
+    });
+    marker.addListener("drag", (event) => {
+      if (event.latLng && insertedIndex !== null) {
+        path[insertedIndex] = normalize(event.latLng);
+        optimizedLayout = null;
+        refreshShapeOverlays();
+        writeMetrics();
+      }
     });
     marker.addListener("dragend", (event) => {
       if (event.latLng && insertedIndex !== null) {
@@ -619,6 +657,19 @@ function drawLayout() {
   buildingPolygons.forEach((building) => addLayoutPolygon(building, "#374151", "#9ca3af", 0.78));
 }
 
+function currentParcelPaths() {
+  return [
+    boundary,
+    ...exclusions.map((path) => orientHoleOppositeBoundary(boundary, path)),
+  ].filter((path) => path.length >= 3);
+}
+
+function refreshShapeOverlays() {
+  if (parcelPolygon) parcelPolygon.setPaths(currentParcelPaths());
+  if (draftPolyline) draftPolyline.setPath(draftExclusion);
+  if (draftPolygon) draftPolygon.setPath(draftExclusion);
+}
+
 function addLayoutPolygon(points, strokeColor, fillColor, fillOpacity) {
   const polygon = new google.maps.Polygon({
     map,
@@ -638,12 +689,16 @@ function clearOverlays() {
   if (draftPolyline) draftPolyline.setMap(null);
   if (draftPolygon) draftPolygon.setMap(null);
   markers.forEach((marker) => marker.setMap(null));
-  layoutPolygons.forEach((polygon) => polygon.setMap(null));
+  clearLayoutPolygons();
   markers = [];
-  layoutPolygons = [];
   parcelPolygon = null;
   draftPolyline = null;
   draftPolygon = null;
+}
+
+function clearLayoutPolygons() {
+  layoutPolygons.forEach((polygon) => polygon.setMap(null));
+  layoutPolygons = [];
 }
 
 function writeMetrics() {
@@ -800,10 +855,12 @@ function findBestLayoutPlan(boundaryXY, holesXY, scenario = FIT_SCENARIOS.balanc
     if (!hallPlan.halls.length) continue;
     const hallArea = hallPlan.halls.reduce((sum, rect) => sum + ((rect.maxX - rect.minX) * (rect.maxY - rect.minY)), 0);
     const targetRows = Math.max(1, Math.min(config.rows, scenario.maxHalls));
-    const rowFit = hallPlan.actualRows / targetRows;
+    const targetBuildings = Math.max(1, Math.min(scenario.maxHalls, config.rows * config.connectedBuildings));
+    const buildingFit = hallPlan.totalBuildings / targetBuildings;
     const averageLength = hallPlan.rowLengthsFt.reduce((sum, value) => sum + value, 0) / hallPlan.rowLengthsFt.length;
     const lengthFit = averageLength / Math.max(1, config.buildingLengthFt);
-    const score = hallArea * (1 + rowFit * 0.18 + lengthFit * 0.08) * scenario.scoreBoost;
+    const compactRowBonus = Math.max(0, targetRows - hallPlan.actualRows) / targetRows;
+    const score = hallArea * (1 + buildingFit * 0.3 + lengthFit * 0.08 + compactRowBonus * 0.06) * scenario.scoreBoost;
     if (!best || score > best.score) {
       best = { angle, hallPlan, score };
     }
@@ -856,6 +913,7 @@ function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, conf
     clusterCounts: [],
     clusterWidthsFt: [],
     rowLengthsFt: [],
+    totalBuildings: 0,
   };
   if (zoneWidth < 20 || zoneHeight < 20) return emptyPlan;
 
@@ -935,6 +993,7 @@ function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, conf
     clusterCounts,
     clusterWidthsFt,
     rowLengthsFt: placedRowLengthsFt,
+    totalBuildings: totalBuildingsForCounts(clusterCounts),
   };
 }
 
@@ -973,13 +1032,21 @@ function centerY(rect) {
 
 function planClusterRowsByWidth({ zoneWidth, requestedRows, maxConnectedBuildings, maxTotalBuildings, firstWidth, additionalWidth, rowGapFt }) {
   const maxRows = Math.max(1, Math.min(requestedRows, maxTotalBuildings));
-  for (let rowCount = maxRows; rowCount >= 1; rowCount--) {
-    const counts = distributeClusterCounts(rowCount, maxConnectedBuildings, maxTotalBuildings);
-    const width = counts.reduce((sum, count) => sum + clusterWidth(count, { firstWidthFt: firstWidth, additionalWidthFt: additionalWidth }), 0)
-      + rowGapFt * Math.max(0, rowCount - 1);
-    if (width <= zoneWidth) return counts;
+  const targetBuildings = Math.max(1, Math.min(maxTotalBuildings, requestedRows * maxConnectedBuildings));
+  for (let buildingTarget = targetBuildings; buildingTarget >= 1; buildingTarget--) {
+    const minRows = Math.max(1, Math.ceil(buildingTarget / maxConnectedBuildings));
+    for (let rowCount = minRows; rowCount <= maxRows; rowCount++) {
+      const counts = distributeClusterCounts(rowCount, maxConnectedBuildings, buildingTarget);
+      const width = counts.reduce((sum, count) => sum + clusterWidth(count, { firstWidthFt: firstWidth, additionalWidthFt: additionalWidth }), 0)
+        + rowGapFt * Math.max(0, rowCount - 1);
+      if (width <= zoneWidth) return counts;
+    }
   }
   return [];
+}
+
+function totalBuildingsForCounts(counts) {
+  return counts.reduce((sum, count) => sum + count, 0);
 }
 
 function planRowLengths(zoneHeight, requestedRows, maxLength, rowGap, minPartialLength) {
