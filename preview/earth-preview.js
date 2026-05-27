@@ -48,6 +48,7 @@ let markers = [];
 let layoutPolygons = [];
 let optimizedLayout = null;
 let activeScenario = "balanced";
+let isDraggingMarker = false;
 let boundary = [
   { lat: 36.3278, lng: -96.9687 },
   { lat: 36.3282, lng: -96.9624 },
@@ -207,6 +208,7 @@ function initMap() {
   });
 
   map.addListener("click", (event) => {
+    if (isDraggingMarker) return;
     if (!event.latLng) return;
     const point = normalize(event.latLng);
     if (mode === "boundary") boundary.push(point);
@@ -303,11 +305,18 @@ function addMarker(point, index, color, onDrag, onRemove) {
       strokeWeight: 2,
     },
   });
-  marker.addListener("drag", (event) => {
-    if (!event.latLng) return;
-    onDrag(normalize(event.latLng));
-    optimizedLayout = null;
-    render();
+  marker.addListener("dragstart", () => {
+    isDraggingMarker = true;
+  });
+  marker.addListener("dragend", (event) => {
+    if (event.latLng) {
+      onDrag(normalize(event.latLng));
+      optimizedLayout = null;
+      render();
+    }
+    window.setTimeout(() => {
+      isDraggingMarker = false;
+    }, 0);
   });
   marker.addListener("dblclick", () => {
     onRemove();

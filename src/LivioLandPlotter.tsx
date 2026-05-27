@@ -37,6 +37,7 @@ export default function LivioLandPlotter({
   const layoutPolygonRefs = useRef<google.maps.Polygon[]>([])
   const markersRef = useRef<google.maps.Marker[]>([])
   const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null)
+  const isDraggingMarkerRef = useRef(false)
 
   const [loadError, setLoadError] = useState<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
@@ -146,12 +147,20 @@ export default function LivioLandPlotter({
         zIndex: 1000,
       })
 
-      marker.addListener('drag', (event: google.maps.MapMouseEvent) => {
-        if (!event.latLng) return
-        onDrag({
-          lat: Number(event.latLng.lat().toFixed(7)),
-          lng: Number(event.latLng.lng().toFixed(7)),
-        })
+      marker.addListener('dragstart', () => {
+        isDraggingMarkerRef.current = true
+      })
+
+      marker.addListener('dragend', (event: google.maps.MapMouseEvent) => {
+        if (event.latLng) {
+          onDrag({
+            lat: Number(event.latLng.lat().toFixed(7)),
+            lng: Number(event.latLng.lng().toFixed(7)),
+          })
+        }
+        window.setTimeout(() => {
+          isDraggingMarkerRef.current = false
+        }, 0)
       })
 
       marker.addListener('dblclick', onRemove)
@@ -339,6 +348,7 @@ export default function LivioLandPlotter({
     if (!map || mode === 'pan') return
 
     clickListenerRef.current = map.addListener('click', (event: google.maps.MapMouseEvent) => {
+      if (isDraggingMarkerRef.current) return
       if (!event.latLng) return
 
       const nextPoint = {
