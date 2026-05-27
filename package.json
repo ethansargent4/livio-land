@@ -1,0 +1,14 @@
+{
+  "name": "livio-land-plotter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Livio Grid land boundary plotter preview and integration handoff.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check preview/preview.js && node --check preview/earth-preview.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Livio Grid Google Satellite Plotter</title>
+    <script>
+      if (window.location.protocol === "file:") {
+        window.location.replace("http://127.0.0.1:4173/earth.html?v=from-file");
+      }
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Google satellite connected preview</p>
+            <h1>Land boundary plotter</h1>
+            <p class="subtle">Uses Google Maps JavaScript API in hybrid/satellite mode, the supported web path for Google Earth-style parcel tracing.</p>
+          </div>
+          <div class="toolbar" aria-label="Plotting tools">
+            <button class="tool active" type="button" data-mode="boundary">Boundary</button>
+            <button class="tool" type="button" data-mode="exclusion">Negative space</button>
+            <button class="tool ghost" type="button" data-action="save-exclusion" disabled>Save cutout</button>
+            <button class="tool" type="button" data-action="optimize">Optimize layout</button>
+            <button class="tool ghost" type="button" data-action="undo">Undo</button>
+            <button class="tool ghost" type="button" data-action="clear">Clear</button>
+          </div>
+        </div>
+
+        <div class="map-card">
+          <div id="googleMap" class="map-canvas"></div>
+          <div id="mapBlocker" class="map-blocker">
+            <strong>Google Maps key needed</strong>
+            <span>Paste a browser-restricted Maps JavaScript API key to load Google hybrid/satellite imagery.</span>
+            <div class="key-form">
+              <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Google Maps JavaScript API key" />
+              <button id="connectKeyButton" type="button">Connect Google Earth</button>
+              <button id="pasteKeyButton" class="secondary-key-button" type="button">Paste key from clipboard</button>
+            </div>
+            <small>You can also set <code>window.LIVIO_GOOGLE_MAPS_API_KEY</code> in <code>preview/config.js</code>.</small>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="brand">
+          <span class="logo">L</span>
+          <div>
+            <strong>Earth imagery check</strong>
+            <span>Real API mode</span>
+          </div>
+        </div>
+
+        <div class="key-status" id="keyStatus">
+          <span>Google Maps key</span>
+          <strong>Checking...</strong>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>Boundary dots</span>
+            <strong id="dotCount">0</strong>
+          </div>
+          <div class="metric">
+            <span>Gross land</span>
+            <strong id="grossArea">0 ac</strong>
+          </div>
+          <div class="metric">
+            <span>Negative space</span>
+            <strong id="excludedArea">0 ac</strong>
+          </div>
+          <div class="metric accent">
+            <span>Net usable</span>
+            <strong id="netArea">0 ac</strong>
+          </div>
+        </div>
+
+        <div class="optimization" id="optimizationCard">
+          <p class="eyebrow">Optimized layout</p>
+          <div class="mini-grid">
+            <div><span>Pad</span><strong id="padArea">--</strong></div>
+            <div><span>Halls</span><strong id="hallCount">--</strong></div>
+            <div><span>Angle</span><strong id="angle">--</strong></div>
+          </div>
+          <p id="optimizationNote">Waiting for a valid Google Maps API key.</p>
+        </div>
+
+        <pre id="jsonOut" aria-label="Parcel JSON output"></pre>
+      </aside>
+    </main>
+    <script src="./config.js"></script>
+    <script src="./earth-preview.js"></script>
+  </body>
+</html>

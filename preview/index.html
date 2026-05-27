@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Livio Grid Land Plotter Preview</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Livio Grid prototype</p>
+            <h1>Land boundary plotter</h1>
+            <p class="subtle">Click dots to shape the parcel, drag points to refine, then optimize the buildable layout.</p>
+          </div>
+          <div class="toolbar" aria-label="Plotting tools">
+            <button class="tool active" type="button" data-mode="boundary">Boundary</button>
+            <button class="tool" type="button" data-mode="exclusion">Negative space</button>
+            <button class="tool ghost" type="button" data-action="save-exclusion" disabled>Save cutout</button>
+            <button class="tool" type="button" data-action="optimize">Optimize layout</button>
+            <button class="tool ghost" type="button" data-action="undo">Undo</button>
+            <button class="tool ghost" type="button" data-action="clear">Clear</button>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <svg id="plotter" viewBox="0 0 980 620" role="img" aria-label="Interactive parcel plotting preview">
+            <defs>
+              <pattern id="field" width="90" height="90" patternUnits="userSpaceOnUse">
+                <rect width="90" height="90" fill="#6f8b5f" />
+                <path d="M0 0H90M0 45H90M0 90H90M0 0V90M45 0V90M90 0V90" stroke="#7fa06c" stroke-width="2" opacity=".55" />
+              </pattern>
+              <linearGradient id="parcelFill" x1="0" x2="1">
+                <stop offset="0" stop-color="#06adf5" stop-opacity=".28" />
+                <stop offset="1" stop-color="#0f6fa8" stop-opacity=".18" />
+              </linearGradient>
+            </defs>
+            <rect width="980" height="620" fill="url(#field)" />
+            <path d="M-30 470C160 420 300 440 480 380C635 328 760 300 1030 314" fill="none" stroke="#6b5f4a" stroke-width="44" opacity=".65" />
+            <path d="M-30 470C160 420 300 440 480 380C635 328 760 300 1030 314" fill="none" stroke="#d8d0bd" stroke-width="16" opacity=".9" />
+            <g id="layoutLayer"></g>
+            <g id="parcelLayer"></g>
+            <g id="exclusionLayer"></g>
+            <g id="pointLayer"></g>
+          </svg>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="brand">
+          <span class="logo">L</span>
+          <div>
+            <strong>Site layout check</strong>
+            <span>Preview mode</span>
+          </div>
+        </div>
+
+        <div class="key-status" id="keyStatus">
+          <span>Google Maps key</span>
+          <strong>Checking...</strong>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>Boundary dots</span>
+            <strong id="dotCount">0</strong>
+          </div>
+          <div class="metric">
+            <span>Gross land</span>
+            <strong id="grossArea">0 ac</strong>
+          </div>
+          <div class="metric">
+            <span>Negative space</span>
+            <strong id="excludedArea">0 ac</strong>
+          </div>
+          <div class="metric accent">
+            <span>Net usable</span>
+            <strong id="netArea">0 ac</strong>
+          </div>
+        </div>
+
+        <div class="optimization" id="optimizationCard">
+          <p class="eyebrow">Optimized layout</p>
+          <div class="mini-grid">
+            <div><span>Pad</span><strong id="padArea">--</strong></div>
+            <div><span>Halls</span><strong id="hallCount">--</strong></div>
+            <div><span>Angle</span><strong id="angle">--</strong></div>
+          </div>
+          <p id="optimizationNote">Click Optimize layout after drawing three or more boundary dots.</p>
+        </div>
+
+        <pre id="jsonOut" aria-label="Parcel JSON output"></pre>
+      </aside>
+    </main>
+    <script src="./config.js"></script>
+    <script src="./preview.js"></script>
+  </body>
+</html>
