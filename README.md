@@ -10,6 +10,7 @@ It lets a user:
 - Drag the vertex dots to refine the land boundary.
 - Add "negative space" exclusions inside the parcel after the main parcel has at least 3 points.
 - Click "Optimize layout" to place a preliminary buildable pad, data halls, utility yard, and truck/fire access aisle inside the usable land.
+- Run TestFit-style scenarios for Balanced, High density, and Resilient layouts with hall count, MW estimate, pad utilization, and fit score.
 - Export the boundary, exclusions, and estimated area to JSON for the Livio Grid analysis engine.
 
 Important implementation choice: this uses the Google Maps JavaScript API in satellite/hybrid mode, not the deprecated Google Drawing Library. Google deprecated the Drawing Library in August 2025 and listed it for removal in a Maps JS API release in May 2026, so this code handles drawing/editing directly with `google.maps.Polygon` paths.
@@ -93,7 +94,11 @@ import LivioLandPlotter from '@/components/site-analysis/LivioLandPlotter'
     dataHalls: [{ label: "Data hall 1", points: [...] }],
     substationYard: { label: "Substation / utility yard", points: [...] },
     driveAisle: { label: "Truck / fire access aisle", points: [...] },
+    dataHallAcres: 5.1,
     padAcres: 7.8,
+    padUtilization: 65,
+    estimatedMw: 92,
+    fitScore: 74,
     rotationDegrees: 10,
     confidence: "medium",
     notes: [...]

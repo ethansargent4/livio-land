@@ -346,6 +346,30 @@ h1 {
   background: #fff7ed;
 }
 
+.scenario-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.scenario {
+  min-height: 34px;
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  background: #fff;
+  color: #9a3412;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.scenario.active {
+  border-color: #f97316;
+  background: #f97316;
+  color: #fff;
+}
+
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

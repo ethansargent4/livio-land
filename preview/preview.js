@@ -5,9 +5,42 @@ const pointLayer = document.getElementById("pointLayer");
 const layoutLayer = document.getElementById("layoutLayer");
 const saveCutoutButton = document.querySelector("[data-action='save-exclusion']");
 const ns = "http://www.w3.org/2000/svg";
+const FIT_SCENARIOS = {
+  balanced: {
+    label: "Balanced",
+    description: "Balanced pad, utility yard, and truck/fire access reserves.",
+    driveRatio: 0.12,
+    yardRatio: 0.18,
+    gapRatio: 0.025,
+    maxHalls: 6,
+    mwPerHallAcre: 18,
+    scoreBoost: 1,
+  },
+  dense: {
+    label: "High density",
+    description: "Prioritizes maximum data hall yield while keeping clear of cutouts.",
+    driveRatio: 0.09,
+    yardRatio: 0.13,
+    gapRatio: 0.018,
+    maxHalls: 8,
+    mwPerHallAcre: 22,
+    scoreBoost: 1.12,
+  },
+  resilient: {
+    label: "Resilient",
+    description: "Larger service, utility, and access reserves for conservative planning.",
+    driveRatio: 0.16,
+    yardRatio: 0.24,
+    gapRatio: 0.035,
+    maxHalls: 5,
+    mwPerHallAcre: 14,
+    scoreBoost: 0.92,
+  },
+};
 
 let mode = "boundary";
 let dragTarget = null;
+let activeScenario = "balanced";
 let boundary = [
   { x: 168, y: 168 },
   { x: 780, y: 126 },
@@ -36,8 +69,17 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 });
 
 document.querySelector("[data-action='optimize']").addEventListener("click", () => {
-  optimizedLayout = optimize(boundary, exclusions);
+  optimizedLayout = optimize(boundary, exclusions, FIT_SCENARIOS[activeScenario]);
   render();
+});
+
+document.querySelectorAll("[data-scenario]").forEach((button) => {
+  button.addEventListener("click", () => {
+    activeScenario = button.dataset.scenario;
+    document.querySelectorAll("[data-scenario]").forEach((item) => item.classList.toggle("active", item === button));
+    optimizedLayout = boundary.length >= 3 ? optimize(boundary, exclusions, FIT_SCENARIOS[activeScenario]) : null;
+    render();
+  });
 });
 
 saveCutoutButton.addEventListener("click", () => {
@@ -153,18 +195,24 @@ function render() {
     setText("padArea", `${optimizedLayout.padAcres.toFixed(1)} ac`);
     setText("hallCount", optimizedLayout.halls.length);
     setText("angle", `${optimizedLayout.angleDegrees.toFixed(0)}deg`);
-    setText("optimizationNote", "Optimized pad avoids negative space and reserves utility yard plus truck/fire access.");
+    setText("mwEstimate", `${optimizedLayout.estimatedMw} MW`);
+    setText("utilization", `${optimizedLayout.padUtilization}%`);
+    setText("fitScore", optimizedLayout.fitScore);
+    setText("optimizationNote", `${optimizedLayout.scenario.label}: ${optimizedLayout.scenario.description}`);
   } else {
     setText("padArea", "--");
     setText("hallCount", "--");
     setText("angle", "--");
+    setText("mwEstimate", "--");
+    setText("utilization", "--");
+    setText("fitScore", "--");
     setText(
       "optimizationNote",
       mode === "exclusion"
         ? draftExclusion.length < 3
           ? `Negative space: add ${3 - draftExclusion.length} more dot${3 - draftExclusion.length === 1 ? "" : "s"}, then Save cutout.`
           : "Negative space ready. Click Save cutout to subtract it from usable land."
-        : "Click Optimize layout after drawing three or more boundary dots."
+        : `Click Optimize layout to run the ${FIT_SCENARIOS[activeScenario].label} test fit.`
     );
   }
 
@@ -176,6 +224,7 @@ function render() {
     grossAcres: Number(gross.toFixed(2)),
     excludedAcres: Number(excluded.toFixed(2)),
     netAcres: Number(net.toFixed(2)),
+    activeScenario,
     optimizedLayout,
   }, null, 2);
 }
@@ -188,7 +237,7 @@ function drawLayout() {
   drawPolygon(layoutLayer, optimizedLayout.yard, "rgba(16,185,129,.38)", "#047857", 2);
 }
 
-function optimize(poly, holes) {
+function optimize(poly, holes, scenario = FIT_SCENARIOS.balanced) {
   if (poly.length < 3) return null;
   let best = null;
   for (let deg = 0; deg < 180; deg += 10) {
@@ -211,7 +260,7 @@ function optimize(poly, holes) {
             if (!rectClear(rect, rotated, rotatedHoles)) continue;
             const area = width * height;
             const aspect = Math.max(width, height) / Math.max(Math.min(width, height), 1);
-            const score = area * (aspect > 4 ? 0.55 : aspect > 2.8 ? 0.82 : 1);
+            const score = area * (aspect > 4 ? 0.55 : aspect > 2.8 ? 0.82 : 1) * scenario.scoreBoost;
             if (!best || score > best.score) best = { ...rect, angle, area, score };
           }
         }
@@ -223,32 +272,43 @@ function optimize(poly, holes) {
   const width = best.maxX - best.minX;
   const height = best.maxY - best.minY;
   const minPadDimension = Math.min(width, height);
-  const driveDepth = clampAvailable(height * 0.12, Math.min(28, height * 0.12), height * 0.22);
-  const gap = clampAvailable(minPadDimension * 0.025, Math.min(8, minPadDimension * 0.025), minPadDimension * 0.06);
-  const yardWidth = clampAvailable(width * 0.18, Math.min(46, width * 0.12), width * 0.26);
+  const driveDepth = clampAvailable(height * scenario.driveRatio, Math.min(28, height * scenario.driveRatio), height * 0.24);
+  const gap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(8, minPadDimension * scenario.gapRatio), minPadDimension * 0.07);
+  const yardWidth = clampAvailable(width * scenario.yardRatio, Math.min(46, width * scenario.yardRatio), width * 0.3);
   const drive = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.minY + driveDepth };
   const yard = { minX: best.maxX - yardWidth, maxX: best.maxX, minY: drive.maxY, maxY: best.maxY };
   const zone = { minX: best.minX + gap, maxX: yard.minX - gap, minY: drive.maxY + gap, maxY: best.maxY - gap };
-  const halls = splitHalls(zone, width, height).map((rect) => rectPoints(rect).map((point) => rotate(point, best.angle)));
+  const hallRects = splitHalls(zone, width, height, scenario);
+  const halls = hallRects.map((rect) => rectPoints(rect).map((point) => rotate(point, best.angle)));
+  const hallAcres = hallRects.reduce((sum, rect) => sum + ((rect.maxX - rect.minX) * (rect.maxY - rect.minY)) / 43560, 0);
+  const padAcres = best.area / 43560;
+  const padUtilization = padAcres ? Math.round((hallAcres / padAcres) * 100) : 0;
+  const estimatedMw = Math.round(hallAcres * scenario.mwPerHallAcre);
+  const fitScore = Math.max(0, Math.min(100, Math.round((padUtilization * 0.7) + (Math.min(estimatedMw, 180) / 180) * 30)));
 
   return {
+    scenario: { id: activeScenario, label: scenario.label, description: scenario.description },
     pad: rectPoints(best).map((point) => rotate(point, best.angle)),
     drive: rectPoints(drive).map((point) => rotate(point, best.angle)),
     yard: rectPoints(yard).map((point) => rotate(point, best.angle)),
     halls,
-    padAcres: best.area / 43560,
+    hallAcres,
+    padAcres,
+    padUtilization,
+    estimatedMw,
+    fitScore,
     angleDegrees: (best.angle * 180) / Math.PI,
   };
 }
 
-function splitHalls(zone, width, height) {
+function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced) {
   const zoneWidth = Math.max(zone.maxX - zone.minX, 0);
   const zoneHeight = Math.max(zone.maxY - zone.minY, 0);
   if (zoneWidth < 40 || zoneHeight < 40) return [];
-  const cols = zoneWidth > 500 ? 3 : zoneWidth > 210 ? 2 : 1;
-  const rows = zoneHeight > 340 ? 2 : 1;
+  const cols = scenario === FIT_SCENARIOS.dense ? (zoneWidth > 640 ? 4 : zoneWidth > 280 ? 3 : zoneWidth > 150 ? 2 : 1) : zoneWidth > 500 ? 3 : zoneWidth > 210 ? 2 : 1;
+  const rows = scenario === FIT_SCENARIOS.dense ? (zoneHeight > 420 ? 3 : zoneHeight > 220 ? 2 : 1) : zoneHeight > 340 ? 2 : 1;
   const minPadDimension = Math.min(width, height);
-  const gap = clampAvailable(minPadDimension * 0.025, Math.min(7, minPadDimension * 0.025), Math.min(22, minPadDimension * 0.06));
+  const gap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(7, minPadDimension * scenario.gapRatio), Math.min(22, minPadDimension * 0.06));
   const hallWidth = (zoneWidth - gap * (cols - 1)) / cols;
   const hallHeight = (zoneHeight - gap * (rows - 1)) / rows;
   const halls = [];
@@ -262,7 +322,7 @@ function splitHalls(zone, width, height) {
       });
     }
   }
-  return halls.slice(0, 6);
+  return halls.slice(0, scenario.maxHalls);
 }
 
 function rectClear(rect, poly, holes) {

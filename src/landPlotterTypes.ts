@@ -25,12 +25,25 @@ export type LayoutPolygon = {
   points: LatLngPoint[]
 }
 
+export type FitScenarioId = 'balanced' | 'dense' | 'resilient'
+
+export type FitScenario = {
+  id: FitScenarioId
+  label: string
+  description: string
+}
+
 export type OptimizedSiteLayout = {
+  scenario: FitScenario
   buildablePad: LayoutPolygon
   dataHalls: LayoutPolygon[]
   substationYard: LayoutPolygon
   driveAisle: LayoutPolygon
+  dataHallAcres: number
   padAcres: number
+  padUtilization: number
+  estimatedMw: number
+  fitScore: number
   rotationDegrees: number
   confidence: 'high' | 'medium' | 'low'
   notes: string[]

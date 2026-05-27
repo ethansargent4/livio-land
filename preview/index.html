@@ -83,10 +83,18 @@
 
         <div class="optimization" id="optimizationCard">
           <p class="eyebrow">Optimized layout</p>
+          <div class="scenario-strip" aria-label="Test fit scenarios">
+            <button class="scenario active" type="button" data-scenario="balanced">Balanced</button>
+            <button class="scenario" type="button" data-scenario="dense">High density</button>
+            <button class="scenario" type="button" data-scenario="resilient">Resilient</button>
+          </div>
           <div class="mini-grid">
             <div><span>Pad</span><strong id="padArea">--</strong></div>
             <div><span>Halls</span><strong id="hallCount">--</strong></div>
             <div><span>Angle</span><strong id="angle">--</strong></div>
+            <div><span>MW</span><strong id="mwEstimate">--</strong></div>
+            <div><span>Use</span><strong id="utilization">--</strong></div>
+            <div><span>Fit</span><strong id="fitScore">--</strong></div>
           </div>
           <p id="optimizationNote">Click Optimize layout after drawing three or more boundary dots.</p>
         </div>

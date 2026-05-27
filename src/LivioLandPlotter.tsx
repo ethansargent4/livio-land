@@ -458,10 +458,14 @@ export default function LivioLandPlotter({
           {optimizedLayout && (
             <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Optimized layout</p>
+              <p className="mt-1 text-sm font-semibold text-amber-950">{optimizedLayout.scenario.label} test fit</p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                 <MiniMetric label="Pad" value={`${optimizedLayout.padAcres} ac`} />
                 <MiniMetric label="Halls" value={String(optimizedLayout.dataHalls.length)} />
                 <MiniMetric label="Angle" value={`${optimizedLayout.rotationDegrees}deg`} />
+                <MiniMetric label="MW" value={`${optimizedLayout.estimatedMw}`} />
+                <MiniMetric label="Use" value={`${optimizedLayout.padUtilization}%`} />
+                <MiniMetric label="Fit" value={String(optimizedLayout.fitScore)} />
               </div>
               <p className="mt-3 text-xs leading-5 text-amber-900">
                 Includes data halls, utility yard, and truck/fire access inside the cleanest buildable pad.

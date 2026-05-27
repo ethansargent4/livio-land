@@ -1,4 +1,4 @@
-import type { LatLngPoint, LayoutPolygon, OptimizedSiteLayout } from './landPlotterTypes'
+import type { FitScenarioId, LatLngPoint, LayoutPolygon, OptimizedSiteLayout } from './landPlotterTypes'
 
 const FEET_PER_METER = 3.280839895
 const SQUARE_FEET_PER_ACRE = 43560
@@ -6,16 +6,64 @@ const SQUARE_FEET_PER_ACRE = 43560
 type XY = { x: number; y: number }
 type Rect = { minX: number; maxX: number; minY: number; maxY: number }
 type Candidate = Rect & { angle: number; area: number; score: number }
+type ScenarioConfig = {
+  id: FitScenarioId
+  label: string
+  description: string
+  driveRatio: number
+  yardRatio: number
+  gapRatio: number
+  maxHalls: number
+  mwPerHallAcre: number
+  scoreBoost: number
+}
 
-export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPoint[][] = []): OptimizedSiteLayout | null {
+const FIT_SCENARIOS: Record<FitScenarioId, ScenarioConfig> = {
+  balanced: {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Balanced pad, utility yard, and truck/fire access reserves.',
+    driveRatio: 0.12,
+    yardRatio: 0.18,
+    gapRatio: 0.025,
+    maxHalls: 6,
+    mwPerHallAcre: 18,
+    scoreBoost: 1,
+  },
+  dense: {
+    id: 'dense',
+    label: 'High density',
+    description: 'Prioritizes maximum data hall yield while keeping clear of cutouts.',
+    driveRatio: 0.09,
+    yardRatio: 0.13,
+    gapRatio: 0.018,
+    maxHalls: 8,
+    mwPerHallAcre: 22,
+    scoreBoost: 1.12,
+  },
+  resilient: {
+    id: 'resilient',
+    label: 'Resilient',
+    description: 'Larger service, utility, and access reserves for conservative planning.',
+    driveRatio: 0.16,
+    yardRatio: 0.24,
+    gapRatio: 0.035,
+    maxHalls: 5,
+    mwPerHallAcre: 14,
+    scoreBoost: 0.92,
+  },
+}
+
+export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPoint[][] = [], scenarioId: FitScenarioId = 'balanced'): OptimizedSiteLayout | null {
   if (boundary.length < 3) return null
 
+  const scenario = FIT_SCENARIOS[scenarioId]
   const validExclusions = exclusions.filter((path) => path.length >= 3)
   const projection = createProjection(boundary)
   const boundaryXY = boundary.map(projection.toXY)
   const exclusionsXY = validExclusions.map((path) => path.map(projection.toXY))
 
-  const best = findBestBuildableRect(boundaryXY, exclusionsXY)
+  const best = findBestBuildableRect(boundaryXY, exclusionsXY, scenario)
   if (!best) return null
 
   const rectToLatLng = (rect: Rect): LatLngPoint[] => {
@@ -33,9 +81,9 @@ export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPo
   const padWidth = best.maxX - best.minX
   const padHeight = best.maxY - best.minY
   const minPadDimension = Math.min(padWidth, padHeight)
-  const driveDepth = clampAvailable(padHeight * 0.12, Math.min(30, padHeight * 0.12), padHeight * 0.22)
-  const serviceGap = clampAvailable(minPadDimension * 0.025, Math.min(10, minPadDimension * 0.025), minPadDimension * 0.06)
-  const yardWidth = clampAvailable(padWidth * 0.18, Math.min(55, padWidth * 0.12), padWidth * 0.26)
+  const driveDepth = clampAvailable(padHeight * scenario.driveRatio, Math.min(30, padHeight * scenario.driveRatio), padHeight * 0.24)
+  const serviceGap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(10, minPadDimension * scenario.gapRatio), minPadDimension * 0.07)
+  const yardWidth = clampAvailable(padWidth * scenario.yardRatio, Math.min(55, padWidth * scenario.yardRatio), padWidth * 0.3)
 
   const driveAisle = {
     minX: pad.minX,
@@ -58,15 +106,25 @@ export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPo
     maxY: pad.maxY - serviceGap,
   }
 
-  const dataHalls = splitDataHalls(dataZone, padWidth, padHeight).map((rect, index) => ({
+  const dataHallRects = splitDataHalls(dataZone, padWidth, padHeight, scenario)
+  const dataHalls = dataHallRects.map((rect, index) => ({
     label: `Data hall ${index + 1}`,
     points: rectToLatLng(rect),
   }))
 
+  const dataHallAcres = round(dataHallRects.reduce((sum, rect) => sum + rectArea(rect) / SQUARE_FEET_PER_ACRE, 0), 2)
   const padAcres = round((best.area / SQUARE_FEET_PER_ACRE), 2)
+  const padUtilization = padAcres ? Math.round((dataHallAcres / padAcres) * 100) : 0
+  const estimatedMw = Math.round(dataHallAcres * scenario.mwPerHallAcre)
+  const fitScore = Math.max(0, Math.min(100, Math.round((padUtilization * 0.7) + (Math.min(estimatedMw, 180) / 180) * 30)))
   const confidence = best.area > 600000 ? 'high' : best.area > 180000 ? 'medium' : 'low'
 
   return {
+    scenario: {
+      id: scenario.id,
+      label: scenario.label,
+      description: scenario.description,
+    },
     buildablePad: {
       label: 'Optimized buildable pad',
       points: rectToLatLng(pad),
@@ -80,7 +138,11 @@ export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPo
       label: 'Truck / fire access aisle',
       points: rectToLatLng(driveAisle),
     },
+    dataHallAcres,
     padAcres,
+    padUtilization,
+    estimatedMw,
+    fitScore,
     rotationDegrees: round((best.angle * 180) / Math.PI, 1),
     confidence,
     notes: [
@@ -91,7 +153,7 @@ export function optimizeSiteLayout(boundary: LatLngPoint[], exclusions: LatLngPo
   }
 }
 
-function findBestBuildableRect(boundary: XY[], exclusions: XY[][]): Candidate | null {
+function findBestBuildableRect(boundary: XY[], exclusions: XY[][], scenario: ScenarioConfig): Candidate | null {
   let best: Candidate | null = null
   const angles = Array.from({ length: 18 }, (_, index) => (index * 10 * Math.PI) / 180)
 
@@ -119,7 +181,7 @@ function findBestBuildableRect(boundary: XY[], exclusions: XY[][]): Candidate | 
             const area = width * height
             const aspect = Math.max(width, height) / Math.max(Math.min(width, height), 1)
             const aspectPenalty = aspect > 5 ? 0.35 : aspect > 3.5 ? 0.65 : aspect > 2.6 ? 0.88 : 1
-            const score = area * aspectPenalty
+            const score = area * aspectPenalty * scenario.scoreBoost
 
             if (!best || score > best.score) {
               best = { ...rect, angle, area, score }
@@ -133,15 +195,15 @@ function findBestBuildableRect(boundary: XY[], exclusions: XY[][]): Candidate | 
   return best
 }
 
-function splitDataHalls(zone: Rect, padWidth: number, padHeight: number): Rect[] {
+function splitDataHalls(zone: Rect, padWidth: number, padHeight: number, scenario: ScenarioConfig): Rect[] {
   const width = Math.max(zone.maxX - zone.minX, 0)
   const height = Math.max(zone.maxY - zone.minY, 0)
   if (width < 45 || height < 45) return []
 
-  const cols = width > 520 ? 3 : width > 220 ? 2 : 1
-  const rows = height > 360 ? 2 : 1
+  const cols = scenario.id === 'dense' ? (width > 640 ? 4 : width > 280 ? 3 : width > 150 ? 2 : 1) : width > 520 ? 3 : width > 220 ? 2 : 1
+  const rows = scenario.id === 'dense' ? (height > 420 ? 3 : height > 220 ? 2 : 1) : height > 360 ? 2 : 1
   const minPadDimension = Math.min(padWidth, padHeight)
-  const gap = clampAvailable(minPadDimension * 0.025, Math.min(8, minPadDimension * 0.025), Math.min(24, minPadDimension * 0.06))
+  const gap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(8, minPadDimension * scenario.gapRatio), Math.min(24, minPadDimension * 0.06))
   const hallWidth = (width - gap * (cols - 1)) / cols
   const hallHeight = (height - gap * (rows - 1)) / rows
   const halls: Rect[] = []
@@ -157,7 +219,11 @@ function splitDataHalls(zone: Rect, padWidth: number, padHeight: number): Rect[]
     }
   }
 
-  return halls.slice(0, 6)
+  return halls.slice(0, scenario.maxHalls)
+}
+
+function rectArea(rect: Rect): number {
+  return Math.max(rect.maxX - rect.minX, 0) * Math.max(rect.maxY - rect.minY, 0)
 }
 
 function isRectClear(rect: Rect, boundary: XY[], exclusions: XY[][]): boolean {
