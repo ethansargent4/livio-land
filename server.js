@@ -4,6 +4,8 @@ import { extname, join, normalize, resolve } from "node:path";
 
 const port = Number.parseInt(process.env.PORT || "4173", 10);
 const root = resolve("preview");
+const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "";
+const googleMapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || process.env.GOOGLE_MAP_ID || "";
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -25,6 +27,20 @@ function resolveRequestPath(url) {
 }
 
 const server = createServer((request, response) => {
+  const parsedUrl = new URL(request.url || "/", `http://localhost:${port}`);
+  if (parsedUrl.pathname === "/config.js" || parsedUrl.pathname === "/preview/config.js") {
+    response.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    response.end([
+      "window.LIVIO_GOOGLE_MAPS_API_KEY = " + JSON.stringify(googleMapsApiKey) + ";",
+      "window.LIVIO_GOOGLE_MAP_ID = " + JSON.stringify(googleMapId) + ";",
+      "",
+    ].join("\n"));
+    return;
+  }
+
   const filePath = resolveRequestPath(request.url || "/");
   const finalPath = existsSync(filePath) && statSync(filePath).isFile() ? filePath : join(root, "index.html");
   const contentType = contentTypes[extname(finalPath)] || "application/octet-stream";

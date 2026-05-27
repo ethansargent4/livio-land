@@ -148,3 +148,12 @@ npm start
 ```
 
 The app serves the preview folder at `/`, with the Google satellite page at `/earth.html`.
+
+Set the Google Maps key as a Railway variable instead of committing it:
+
+```bash
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_browser_restricted_key
+NEXT_PUBLIC_GOOGLE_MAP_ID=optional_map_id
+```
+
+The server injects those values into `/config.js` at runtime.

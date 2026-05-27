@@ -146,10 +146,15 @@ function getGoogleMapsKey() {
   return (localStorage.getItem(LOCAL_KEY) || window.LIVIO_GOOGLE_MAPS_API_KEY || "").trim();
 }
 
+function getGoogleMapId() {
+  return (window.LIVIO_GOOGLE_MAP_ID || "").trim();
+}
+
 function initMap() {
   map = new google.maps.Map(mapEl, {
     center: { lat: 36.326, lng: -96.965 },
     zoom: 17,
+    mapId: getGoogleMapId() || undefined,
     mapTypeId: google.maps.MapTypeId.HYBRID,
     clickableIcons: false,
     fullscreenControl: true,
