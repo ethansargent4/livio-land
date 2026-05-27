@@ -88,7 +88,7 @@
           <div class="building-config" aria-label="Building dimensions">
             <div class="building-config-head">
               <strong>Building dimensions</strong>
-              <span id="buildingFormula">3 clusters: 3 / 2 / 1</span>
+              <span id="buildingFormula">10 rows: 3 / 3 / 3 / ...</span>
             </div>
             <label>
               One building width
@@ -99,16 +99,16 @@
               <input id="additionalWidthFt" type="number" min="0" step="1" value="25" />
             </label>
             <label>
-              Max per cluster
+              Max per row
               <input id="connectedBuildings" type="number" min="1" step="1" value="3" />
             </label>
             <label>
-              One building length
+              Max building length
               <input id="buildingLengthFt" type="number" min="1" step="5" value="320" />
             </label>
             <label>
-              Clusters / rows
-              <input id="buildingRows" type="number" min="1" step="1" value="3" />
+              Max rows
+              <input id="buildingRows" type="number" min="1" step="1" value="10" />
             </label>
             <label>
               Row gap
@@ -126,7 +126,7 @@
           <div class="mini-grid building-grid">
             <div><span>Width</span><strong id="buildingWidthMetric">80 ft</strong></div>
             <div><span>Length</span><strong id="buildingLengthMetric">320 ft</strong></div>
-            <div><span>Clusters</span><strong id="buildingRowsMetric">3</strong></div>
+            <div><span>Rows</span><strong id="buildingRowsMetric">10</strong></div>
           </div>
           <div class="save-strip">
             <button id="saveLayoutButton" class="scenario save-build" type="button">Save build</button>

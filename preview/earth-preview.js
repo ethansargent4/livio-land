@@ -23,7 +23,7 @@ const DEFAULT_BUILDING_CONFIG = {
   additionalWidthFt: 25,
   connectedBuildings: 3,
   buildingLengthFt: 320,
-  rows: 3,
+  rows: 10,
   rowGapFt: 30,
 };
 const FIT_SCENARIOS = {
@@ -33,7 +33,7 @@ const FIT_SCENARIOS = {
     driveRatio: 0.12,
     yardRatio: 0.18,
     gapRatio: 0.025,
-    maxHalls: 6,
+    maxHalls: 24,
     mwPerHallAcre: 18,
     scoreBoost: 1,
   },
@@ -43,7 +43,7 @@ const FIT_SCENARIOS = {
     driveRatio: 0.09,
     yardRatio: 0.13,
     gapRatio: 0.018,
-    maxHalls: 8,
+    maxHalls: 36,
     mwPerHallAcre: 22,
     scoreBoost: 1.12,
   },
@@ -53,7 +53,7 @@ const FIT_SCENARIOS = {
     driveRatio: 0.16,
     yardRatio: 0.24,
     gapRatio: 0.035,
-    maxHalls: 5,
+    maxHalls: 18,
     mwPerHallAcre: 14,
     scoreBoost: 0.92,
   },
@@ -371,14 +371,21 @@ function writeBuildingMetrics(layout = optimizedLayout) {
   const rows = layout?.actualRows || Math.min(config.rows, FIT_SCENARIOS[activeScenario].maxHalls);
   const clusterCounts = layout?.clusterCounts || distributeClusterCounts(rows, config.connectedBuildings, FIT_SCENARIOS[activeScenario].maxHalls);
   const clusterWidths = layout?.clusterWidthsFt || clusterCounts.map((count) => clusterWidth(count, config));
+  const rowLengths = layout?.rowLengthsFt || Array.from({ length: rows }, () => config.buildingLengthFt);
   const minWidth = Math.min(...clusterWidths);
   const maxWidth = Math.max(...clusterWidths);
-  const length = layout?.buildingLengthFt || config.buildingLengthFt;
-  const clusterText = clusterCounts.join(" / ");
-  setText("buildingFormula", `${rows} cluster${rows === 1 ? "" : "s"}: ${clusterText}`);
+  const minLength = Math.min(...rowLengths);
+  const maxLength = Math.max(...rowLengths);
+  const clusterText = summarizeRowCounts(clusterCounts);
+  setText("buildingFormula", `${rows} row${rows === 1 ? "" : "s"}: ${clusterText}`);
   setText("buildingWidthMetric", `${Math.round(minWidth)}${Math.round(minWidth) === Math.round(maxWidth) ? "" : `-${Math.round(maxWidth)}`} ft`);
-  setText("buildingLengthMetric", `${Math.round(length)} ft`);
+  setText("buildingLengthMetric", `${Math.round(minLength)}${Math.round(minLength) === Math.round(maxLength) ? "" : `-${Math.round(maxLength)}`} ft`);
   setText("buildingRowsMetric", rows);
+}
+
+function summarizeRowCounts(counts) {
+  if (counts.length <= 6) return counts.join(" / ");
+  return `${counts.slice(0, 3).join(" / ")} / ... / ${counts.slice(-2).join(" / ")}`;
 }
 
 function buildLayoutPayload() {
@@ -608,11 +615,8 @@ function addEdgeMarkers(path, color, onInsert, closed) {
 
 function drawLayout() {
   if (!optimizedLayout) return;
-  addLayoutPolygon(optimizedLayout.pad, "#f59e0b", "#fbbf24", 0.18);
-  addLayoutPolygon(optimizedLayout.drive, "#475569", "#64748b", 0.34);
   const buildingPolygons = optimizedLayout.buildings?.length ? optimizedLayout.buildings : optimizedLayout.halls;
   buildingPolygons.forEach((building) => addLayoutPolygon(building, "#374151", "#9ca3af", 0.78));
-  addLayoutPolygon(optimizedLayout.yard, "#047857", "#10b981", 0.36);
 }
 
 function addLayoutPolygon(points, strokeColor, fillColor, fillOpacity) {
@@ -733,30 +737,34 @@ function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced, config =
   if (!best) return null;
 
   const toLatLngRect = (rect) => rectPoints(rect).map((point) => projection.toLatLng(rotate(point, best.angle)));
-  const width = best.maxX - best.minX;
-  const height = best.maxY - best.minY;
-  const minPadDimension = Math.min(width, height);
-  const driveDepth = clampAvailable(height * scenario.driveRatio, Math.min(30, height * scenario.driveRatio), height * 0.24);
-  const gap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(10, minPadDimension * scenario.gapRatio), minPadDimension * 0.07);
-  const yardWidth = clampAvailable(width * scenario.yardRatio, Math.min(55, width * scenario.yardRatio), width * 0.3);
-  const drive = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.minY + driveDepth };
-  const yard = { minX: best.maxX - yardWidth, maxX: best.maxX, minY: drive.maxY, maxY: best.maxY };
-  const zone = { minX: best.minX + gap, maxX: yard.minX - gap, minY: drive.maxY + gap, maxY: best.maxY - gap };
-  const hallPlan = splitHalls(zone, width, height, scenario, config);
+  const rotatedBoundary = xyBoundary.map((point) => rotate(point, -best.angle));
+  const rotatedHoles = xyHoles.map((path) => path.map((point) => rotate(point, -best.angle)));
+  const siteBounds = getBounds(rotatedBoundary);
+  const siteWidth = siteBounds.maxX - siteBounds.minX;
+  const siteHeight = siteBounds.maxY - siteBounds.minY;
+  const edgeSetback = clampAvailable(Math.min(siteWidth, siteHeight) * scenario.gapRatio, 15, 60);
+  const zone = {
+    minX: siteBounds.minX + edgeSetback,
+    maxX: siteBounds.maxX - edgeSetback,
+    minY: siteBounds.minY + edgeSetback,
+    maxY: siteBounds.maxY - edgeSetback,
+  };
+  const hallPlan = splitHalls(zone, siteWidth, siteHeight, scenario, config, { boundary: rotatedBoundary, holes: rotatedHoles });
   const hallRects = hallPlan.halls;
   if (!hallRects.length) return null;
   const buildingRects = hallPlan.buildings;
   const hallAcres = hallRects.reduce((sum, rect) => sum + ((rect.maxX - rect.minX) * (rect.maxY - rect.minY)) / 43560, 0);
-  const padAcres = best.area / 43560;
+  const layoutEnvelope = getRectBounds(hallRects);
+  const padAcres = ((layoutEnvelope.maxX - layoutEnvelope.minX) * (layoutEnvelope.maxY - layoutEnvelope.minY)) / 43560;
   const padUtilization = padAcres ? Math.round((hallAcres / padAcres) * 100) : 0;
   const estimatedMw = Math.round(hallAcres * scenario.mwPerHallAcre);
   const fitScore = Math.max(0, Math.min(100, Math.round((padUtilization * 0.7) + (Math.min(estimatedMw, 180) / 180) * 30)));
 
   return {
     scenario: { id: activeScenario, label: scenario.label, description: scenario.description },
-    pad: toLatLngRect(best),
-    drive: toLatLngRect(drive),
-    yard: toLatLngRect(yard),
+    pad: toLatLngRect(layoutEnvelope),
+    drive: [],
+    yard: [],
     halls: hallRects.map(toLatLngRect),
     buildings: buildingRects.map(toLatLngRect),
     buildingConfig: { ...config },
@@ -765,7 +773,10 @@ function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced, config =
     clusterWidthsFt: hallPlan.clusterWidthsFt.map(Math.round),
     minClusterWidthFt: Math.round(Math.min(...hallPlan.clusterWidthsFt)),
     maxClusterWidthFt: Math.round(Math.max(...hallPlan.clusterWidthsFt)),
-    buildingLengthFt: Math.round(hallPlan.buildingLengthFt),
+    rowLengthsFt: hallPlan.rowLengthsFt.map(Math.round),
+    buildingLengthFt: Math.round(Math.max(...hallPlan.rowLengthsFt)),
+    minBuildingLengthFt: Math.round(Math.min(...hallPlan.rowLengthsFt)),
+    maxBuildingLengthFt: Math.round(Math.max(...hallPlan.rowLengthsFt)),
     requestedConnectedBuildings: config.connectedBuildings,
     actualConnectedBuildings: hallPlan.actualConnectedBuildings,
     requestedRows: config.rows,
@@ -812,7 +823,7 @@ function findBestRect(boundaryXY, holesXY, scenario = FIT_SCENARIOS.balanced) {
   return best;
 }
 
-function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, config = buildingConfig) {
+function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, config = buildingConfig, clearance = null) {
   const zoneWidth = Math.max(zone.maxX - zone.minX, 0);
   const zoneHeight = Math.max(zone.maxY - zone.minY, 0);
   const emptyPlan = {
@@ -825,6 +836,7 @@ function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, conf
     rowGapFt: config.rowGapFt,
     clusterCounts: [],
     clusterWidthsFt: [],
+    rowLengthsFt: [],
   };
   if (zoneWidth < 20 || zoneHeight < 20) return emptyPlan;
 
@@ -838,47 +850,99 @@ function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, conf
   const maxConnectedBuildings = Math.max(1, Math.min(requestedBuildings, maxBuildingsByWidth));
   const rowGapFt = Math.max(0, config.rowGapFt);
   const requestedLength = Math.max(1, config.buildingLengthFt);
-  const maxRowsByHeight = Math.max(1, Math.floor((zoneHeight + rowGapFt) / (requestedLength + rowGapFt)));
-  const actualRows = Math.max(1, Math.min(requestedRows, maxRowsByHeight, scenario.maxHalls));
-  const buildingLengthFt = Math.max(1, Math.min(requestedLength, (zoneHeight - rowGapFt * (actualRows - 1)) / actualRows));
-  const clusterCounts = distributeClusterCounts(actualRows, maxConnectedBuildings, scenario.maxHalls);
-  const clusterWidthsFt = clusterCounts.map((count) => firstWidth + Math.max(0, count - 1) * additionalWidth);
-  const connectedWidthFt = Math.max(...clusterWidthsFt);
-  const totalHeight = buildingLengthFt * actualRows + rowGapFt * (actualRows - 1);
+  const minPartialLength = Math.min(requestedLength, Math.max(80, requestedLength * 0.45));
+  const rowLengthsFt = planRowLengths(zoneHeight, requestedRows, requestedLength, rowGapFt, minPartialLength);
+  const actualRows = Math.max(1, Math.min(rowLengthsFt.length, scenario.maxHalls));
+  rowLengthsFt.length = actualRows;
+  const desiredClusterCounts = distributeClusterCounts(actualRows, maxConnectedBuildings, scenario.maxHalls);
+  const totalHeight = rowLengthsFt.reduce((sum, value) => sum + value, 0) + rowGapFt * (actualRows - 1);
   const startY = zone.minY + Math.max(0, (zoneHeight - totalHeight) / 2);
   const halls = [];
   const buildings = [];
+  const clusterCounts = [];
+  const clusterWidthsFt = [];
+  const placedRowLengthsFt = [];
+  let cursorY = startY;
   for (let row = 0; row < actualRows; row++) {
-    const rowWidth = clusterWidthsFt[row];
-    const startX = zone.minX + (zoneWidth - rowWidth) / 2;
-    const minY = startY + row * (buildingLengthFt + rowGapFt);
-    halls.push({
-      minX: startX,
-      maxX: startX + rowWidth,
+    const minY = cursorY;
+    const rowLengthFt = rowLengthsFt[row];
+    const placement = findRowPlacement({
+      zone,
       minY,
-      maxY: minY + buildingLengthFt,
+      rowLengthFt,
+      desiredCount: desiredClusterCounts[row],
+      firstWidth,
+      additionalWidth,
+      clearance,
     });
+    if (!placement) {
+      cursorY += rowLengthFt + rowGapFt;
+      continue;
+    }
+    const { rect, count, rowWidth } = placement;
+    halls.push({
+      ...rect,
+    });
+    clusterCounts.push(count);
+    clusterWidthsFt.push(rowWidth);
+    placedRowLengthsFt.push(rowLengthFt);
     buildings.push(...splitClusterIntoBuildings({
-      startX,
-      minY,
-      buildingLengthFt,
-      clusterCount: clusterCounts[row],
+      startX: rect.minX,
+      minY: rect.minY,
+      buildingLengthFt: rowLengthFt,
+      clusterCount: count,
       firstWidth,
       additionalWidth,
       rowWidth,
     }));
+    cursorY += rowLengthFt + rowGapFt;
   }
+  if (!halls.length) return emptyPlan;
   return {
     halls,
     buildings,
-    actualRows,
+    actualRows: halls.length,
     actualConnectedBuildings: Math.max(...clusterCounts),
-    connectedWidthFt,
-    buildingLengthFt,
+    connectedWidthFt: Math.max(...clusterWidthsFt),
+    buildingLengthFt: Math.max(...placedRowLengthsFt),
     rowGapFt,
     clusterCounts,
     clusterWidthsFt,
+    rowLengthsFt: placedRowLengthsFt,
   };
+}
+
+function findRowPlacement({ zone, minY, rowLengthFt, desiredCount, firstWidth, additionalWidth, clearance }) {
+  const zoneWidth = Math.max(zone.maxX - zone.minX, 0);
+  for (let count = desiredCount; count >= 1; count--) {
+    const rowWidth = firstWidth + Math.max(0, count - 1) * additionalWidth;
+    if (rowWidth > zoneWidth) continue;
+    const leftOptions = grid(zone.minX, zone.maxX - rowWidth, 36)
+      .sort((a, b) => Math.abs((a + rowWidth / 2) - centerX(zone)) - Math.abs((b + rowWidth / 2) - centerX(zone)));
+    for (const minX of leftOptions) {
+      const rect = { minX, maxX: minX + rowWidth, minY, maxY: minY + rowLengthFt };
+      if (!clearance || rectClear(rect, clearance.boundary, clearance.holes)) return { rect, count, rowWidth };
+    }
+  }
+  return null;
+}
+
+function centerX(rect) {
+  return (rect.minX + rect.maxX) / 2;
+}
+
+function planRowLengths(zoneHeight, requestedRows, maxLength, rowGap, minPartialLength) {
+  const rows = [];
+  let usedHeight = 0;
+  for (let index = 0; index < requestedRows; index++) {
+    const gapBefore = rows.length ? rowGap : 0;
+    const remaining = zoneHeight - usedHeight - gapBefore;
+    if (remaining < minPartialLength) break;
+    const rowLength = Math.min(maxLength, remaining);
+    rows.push(rowLength);
+    usedHeight += gapBefore + rowLength;
+  }
+  return rows.length ? rows : [Math.max(1, Math.min(maxLength, zoneHeight))];
 }
 
 function splitClusterIntoBuildings({ startX, minY, buildingLengthFt, clusterCount, firstWidth, additionalWidth, rowWidth }) {
@@ -1038,6 +1102,15 @@ function rectPoints(rect) {
     { x: rect.maxX, y: rect.maxY },
     { x: rect.minX, y: rect.maxY },
   ];
+}
+
+function getRectBounds(rects) {
+  return rects.reduce((bounds, rect) => ({
+    minX: Math.min(bounds.minX, rect.minX),
+    maxX: Math.max(bounds.maxX, rect.maxX),
+    minY: Math.min(bounds.minY, rect.minY),
+    maxY: Math.max(bounds.maxY, rect.maxY),
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
 }
 
 function grid(min, max, steps) {
