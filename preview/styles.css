@@ -370,6 +370,56 @@ h1 {
   color: #fff;
 }
 
+.building-config {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.building-config-head {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.building-config-head strong {
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.building-config-head span {
+  color: #7c2d12;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.building-config label {
+  display: grid;
+  gap: 4px;
+  color: #9a3412;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.building-config input {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 9px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -396,6 +446,79 @@ h1 {
   display: block;
   margin-top: 3px;
   font-size: 16px;
+}
+
+.building-grid {
+  margin-top: 8px;
+}
+
+.save-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.save-build {
+  min-width: 102px;
+  border-color: #f97316;
+  background: #f97316;
+  color: #fff;
+}
+
+.save-strip span {
+  color: #9a3412;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.saved-layouts {
+  margin-top: 12px;
+  border-top: 1px solid #fed7aa;
+  padding-top: 12px;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  color: #0f6fa8;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.saved-layout-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.saved-layout-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-layout-item:hover {
+  border-color: #f97316;
+}
+
+.saved-layout-item strong {
+  font-size: 12px;
+}
+
+.saved-layout-item span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .optimization p:last-child {

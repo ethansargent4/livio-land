@@ -85,13 +85,59 @@
             <button class="scenario" type="button" data-scenario="dense">High density</button>
             <button class="scenario" type="button" data-scenario="resilient">Resilient</button>
           </div>
+          <div class="building-config" aria-label="Building dimensions">
+            <div class="building-config-head">
+              <strong>Building dimensions</strong>
+              <span id="buildingFormula">3 clusters: 3 / 2 / 1</span>
+            </div>
+            <label>
+              One building width
+              <input id="firstWidthFt" type="number" min="1" step="1" value="30" />
+            </label>
+            <label>
+              +1 building width
+              <input id="additionalWidthFt" type="number" min="0" step="1" value="25" />
+            </label>
+            <label>
+              Max per cluster
+              <input id="connectedBuildings" type="number" min="1" step="1" value="3" />
+            </label>
+            <label>
+              One building length
+              <input id="buildingLengthFt" type="number" min="1" step="5" value="320" />
+            </label>
+            <label>
+              Clusters / rows
+              <input id="buildingRows" type="number" min="1" step="1" value="3" />
+            </label>
+            <label>
+              Row gap
+              <input id="rowGapFt" type="number" min="0" step="5" value="30" />
+            </label>
+          </div>
           <div class="mini-grid">
             <div><span>Pad</span><strong id="padArea">--</strong></div>
-            <div><span>Halls</span><strong id="hallCount">--</strong></div>
+            <div><span>Buildings</span><strong id="hallCount">--</strong></div>
             <div><span>Angle</span><strong id="angle">--</strong></div>
             <div><span>MW</span><strong id="mwEstimate">--</strong></div>
             <div><span>Use</span><strong id="utilization">--</strong></div>
             <div><span>Fit</span><strong id="fitScore">--</strong></div>
+          </div>
+          <div class="mini-grid building-grid">
+            <div><span>Width</span><strong id="buildingWidthMetric">80 ft</strong></div>
+            <div><span>Length</span><strong id="buildingLengthMetric">320 ft</strong></div>
+            <div><span>Clusters</span><strong id="buildingRowsMetric">3</strong></div>
+          </div>
+          <div class="save-strip">
+            <button id="saveLayoutButton" class="scenario save-build" type="button">Save build</button>
+            <span id="saveStatus">Not saved yet</span>
+          </div>
+          <div class="saved-layouts">
+            <div class="building-config-head">
+              <strong>Saved builds</strong>
+              <button id="refreshLayoutsButton" class="text-button" type="button">Refresh</button>
+            </div>
+            <div id="savedLayoutsList" class="saved-layout-list">No saved builds yet.</div>
           </div>
           <p id="optimizationNote">Waiting for a valid Google Maps API key.</p>
         </div>

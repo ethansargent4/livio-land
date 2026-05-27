@@ -5,7 +5,27 @@ const saveCutoutButton = document.querySelector("[data-action='save-exclusion']"
 const apiKeyInput = document.getElementById("apiKeyInput");
 const connectKeyButton = document.getElementById("connectKeyButton");
 const pasteKeyButton = document.getElementById("pasteKeyButton");
+const saveLayoutButton = document.getElementById("saveLayoutButton");
+const refreshLayoutsButton = document.getElementById("refreshLayoutsButton");
+const savedLayoutsList = document.getElementById("savedLayoutsList");
+const saveStatus = document.getElementById("saveStatus");
+const buildingInputs = {
+  firstWidthFt: document.getElementById("firstWidthFt"),
+  additionalWidthFt: document.getElementById("additionalWidthFt"),
+  connectedBuildings: document.getElementById("connectedBuildings"),
+  buildingLengthFt: document.getElementById("buildingLengthFt"),
+  rows: document.getElementById("buildingRows"),
+  rowGapFt: document.getElementById("rowGapFt"),
+};
 const LOCAL_KEY = "livio-grid-google-maps-api-key";
+const DEFAULT_BUILDING_CONFIG = {
+  firstWidthFt: 30,
+  additionalWidthFt: 25,
+  connectedBuildings: 3,
+  buildingLengthFt: 320,
+  rows: 3,
+  rowGapFt: 30,
+};
 const FIT_SCENARIOS = {
   balanced: {
     label: "Balanced",
@@ -49,6 +69,8 @@ let layoutPolygons = [];
 let optimizedLayout = null;
 let activeScenario = "balanced";
 let isDraggingMarker = false;
+let buildingConfig = { ...DEFAULT_BUILDING_CONFIG };
+let savedLayouts = [];
 let boundary = [
   { lat: 36.3278, lng: -96.9687 },
   { lat: 36.3282, lng: -96.9624 },
@@ -73,7 +95,7 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 });
 
 document.querySelector("[data-action='optimize']").addEventListener("click", () => {
-  optimizedLayout = optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario]);
+  optimizedLayout = optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario], buildingConfig);
   render();
 });
 
@@ -81,8 +103,20 @@ document.querySelectorAll("[data-scenario]").forEach((button) => {
   button.addEventListener("click", () => {
     activeScenario = button.dataset.scenario;
     document.querySelectorAll("[data-scenario]").forEach((item) => item.classList.toggle("active", item === button));
-    optimizedLayout = boundary.length >= 3 ? optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario]) : null;
+    optimizedLayout = boundary.length >= 3 ? optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario], buildingConfig) : null;
     render();
+  });
+});
+
+Object.values(buildingInputs).forEach((input) => {
+  input.addEventListener("input", () => {
+    buildingConfig = getBuildingConfig();
+    if (optimizedLayout && boundary.length >= 3) {
+      optimizedLayout = optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario], buildingConfig);
+      render();
+      return;
+    }
+    writeMetrics();
   });
 });
 
@@ -102,6 +136,8 @@ document.querySelector("[data-action='clear']").addEventListener("click", () => 
 });
 
 saveCutoutButton.addEventListener("click", () => finishDraftExclusion());
+saveLayoutButton.addEventListener("click", () => saveCurrentLayout());
+refreshLayoutsButton.addEventListener("click", () => loadSavedLayouts());
 
 connectKeyButton.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
@@ -186,7 +222,12 @@ function loadGoogleMaps() {
 }
 
 function getGoogleMapsKey() {
-  return (localStorage.getItem(LOCAL_KEY) || window.LIVIO_GOOGLE_MAPS_API_KEY || "").trim();
+  const serverKey = (window.LIVIO_GOOGLE_MAPS_API_KEY || "").trim();
+  if (serverKey) {
+    localStorage.removeItem(LOCAL_KEY);
+    return serverKey;
+  }
+  return (localStorage.getItem(LOCAL_KEY) || "").trim();
 }
 
 function getGoogleMapId() {
@@ -280,6 +321,189 @@ function render() {
   writeMetrics();
 }
 
+function getBuildingConfig() {
+  return {
+    firstWidthFt: readPositiveNumber(buildingInputs.firstWidthFt, DEFAULT_BUILDING_CONFIG.firstWidthFt),
+    additionalWidthFt: readNonNegativeNumber(buildingInputs.additionalWidthFt, DEFAULT_BUILDING_CONFIG.additionalWidthFt),
+    connectedBuildings: readPositiveInteger(buildingInputs.connectedBuildings, DEFAULT_BUILDING_CONFIG.connectedBuildings),
+    buildingLengthFt: readPositiveNumber(buildingInputs.buildingLengthFt, DEFAULT_BUILDING_CONFIG.buildingLengthFt),
+    rows: readPositiveInteger(buildingInputs.rows, DEFAULT_BUILDING_CONFIG.rows),
+    rowGapFt: readNonNegativeNumber(buildingInputs.rowGapFt, DEFAULT_BUILDING_CONFIG.rowGapFt),
+  };
+}
+
+function applyBuildingInputs() {
+  buildingInputs.firstWidthFt.value = String(buildingConfig.firstWidthFt);
+  buildingInputs.additionalWidthFt.value = String(buildingConfig.additionalWidthFt);
+  buildingInputs.connectedBuildings.value = String(buildingConfig.connectedBuildings);
+  buildingInputs.buildingLengthFt.value = String(buildingConfig.buildingLengthFt);
+  buildingInputs.rows.value = String(buildingConfig.rows);
+  buildingInputs.rowGapFt.value = String(buildingConfig.rowGapFt);
+}
+
+function connectedBuildingWidth(config = buildingConfig) {
+  return config.firstWidthFt + Math.max(0, config.connectedBuildings - 1) * config.additionalWidthFt;
+}
+
+function clusterWidth(count, config = buildingConfig) {
+  return config.firstWidthFt + Math.max(0, count - 1) * config.additionalWidthFt;
+}
+
+function readPositiveNumber(input, fallback) {
+  const value = Number(input.value);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readNonNegativeNumber(input, fallback) {
+  const value = Number(input.value);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function readPositiveInteger(input, fallback) {
+  return Math.max(1, Math.round(readPositiveNumber(input, fallback)));
+}
+
+function writeBuildingMetrics(layout = optimizedLayout) {
+  const config = layout?.buildingConfig || buildingConfig;
+  const rows = layout?.actualRows || Math.min(config.rows, FIT_SCENARIOS[activeScenario].maxHalls);
+  const clusterCounts = layout?.clusterCounts || distributeClusterCounts(rows, config.connectedBuildings, FIT_SCENARIOS[activeScenario].maxHalls);
+  const clusterWidths = layout?.clusterWidthsFt || clusterCounts.map((count) => clusterWidth(count, config));
+  const minWidth = Math.min(...clusterWidths);
+  const maxWidth = Math.max(...clusterWidths);
+  const length = layout?.buildingLengthFt || config.buildingLengthFt;
+  const clusterText = clusterCounts.join(" / ");
+  setText("buildingFormula", `${rows} cluster${rows === 1 ? "" : "s"}: ${clusterText}`);
+  setText("buildingWidthMetric", `${Math.round(minWidth)}${Math.round(minWidth) === Math.round(maxWidth) ? "" : `-${Math.round(maxWidth)}`} ft`);
+  setText("buildingLengthMetric", `${Math.round(length)} ft`);
+  setText("buildingRowsMetric", rows);
+}
+
+function buildLayoutPayload() {
+  const gross = areaAcres(boundary);
+  const excluded = exclusions.reduce((sum, path) => sum + areaAcres(path), 0);
+  const net = Math.max(gross - excluded, 0);
+  const savedAt = new Date().toISOString();
+  return {
+    name: `Livio build ${new Date(savedAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}`,
+    savedAt,
+    boundary,
+    exclusions,
+    grossAcres: Number(gross.toFixed(2)),
+    excludedAcres: Number(excluded.toFixed(2)),
+    netAcres: Number(net.toFixed(2)),
+    activeScenario,
+    buildingConfig,
+    optimizedLayout,
+  };
+}
+
+async function saveCurrentLayout() {
+  if (boundary.length < 3) {
+    setSaveStatus("Add at least 3 boundary dots before saving.");
+    return;
+  }
+  if (!optimizedLayout) {
+    optimizedLayout = optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario], buildingConfig);
+    render();
+  }
+
+  setSaveStatus("Saving...");
+  saveLayoutButton.disabled = true;
+  try {
+    const response = await fetch("/api/layouts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildLayoutPayload()),
+    });
+    if (!response.ok) throw new Error(`Save failed (${response.status})`);
+    const data = await response.json();
+    const layout = data.layout;
+    savedLayouts = [layout, ...savedLayouts.filter((item) => item.id !== layout.id)].slice(0, 25);
+    renderSavedLayouts(data.store);
+    setSaveStatus(`Saved to ${data.store === "postgres" ? "Railway database" : "local database"}.`);
+  } catch (error) {
+    setSaveStatus(error.message || "Save failed.");
+  } finally {
+    saveLayoutButton.disabled = false;
+  }
+}
+
+async function loadSavedLayouts() {
+  try {
+    const response = await fetch("/api/layouts", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Load failed (${response.status})`);
+    const data = await response.json();
+    savedLayouts = Array.isArray(data.layouts) ? data.layouts : [];
+    renderSavedLayouts(data.store);
+  } catch (error) {
+    savedLayoutsList.textContent = error.message || "Could not load saved builds.";
+  }
+}
+
+function renderSavedLayouts(store = "local") {
+  savedLayoutsList.textContent = "";
+  if (!savedLayouts.length) {
+    savedLayoutsList.textContent = `No saved builds yet (${store}).`;
+    return;
+  }
+
+  savedLayouts.forEach((layout) => {
+    const payload = layout.payload || layout;
+    const button = document.createElement("button");
+    button.className = "saved-layout-item";
+    button.type = "button";
+    const title = document.createElement("strong");
+    title.textContent = layout.name || payload.name || "Saved Livio build";
+    const meta = document.createElement("span");
+    meta.textContent = `${formatAcres(payload.netAcres)} usable | ${formatDate(layout.updatedAt || payload.savedAt)}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => applySavedLayout(payload));
+    savedLayoutsList.append(button);
+  });
+}
+
+function applySavedLayout(payload) {
+  boundary = normalizePaths([payload.boundary])[0] || boundary;
+  exclusions = normalizePaths(payload.exclusions);
+  activeScenario = FIT_SCENARIOS[payload.activeScenario] ? payload.activeScenario : "balanced";
+  buildingConfig = { ...DEFAULT_BUILDING_CONFIG, ...(payload.buildingConfig || {}) };
+  applyBuildingInputs();
+  document.querySelectorAll("[data-scenario]").forEach((item) => item.classList.toggle("active", item.dataset.scenario === activeScenario));
+  optimizedLayout = boundary.length >= 3 ? optimizeLatLng(boundary, exclusions, FIT_SCENARIOS[activeScenario], buildingConfig) : null;
+  mode = "boundary";
+  document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("active", item.dataset.mode === "boundary"));
+  render();
+  fitBoundary();
+  setSaveStatus("Loaded saved build.");
+}
+
+function normalizePaths(paths) {
+  if (!Array.isArray(paths)) return [];
+  return paths
+    .map((path) => Array.isArray(path) ? path.filter(isLatLngPoint).map((point) => ({
+      lat: Number(point.lat),
+      lng: Number(point.lng),
+    })) : [])
+    .filter((path) => path.length >= 3);
+}
+
+function isLatLngPoint(point) {
+  return point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng));
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "saved" : date.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
+}
+
+function formatAcres(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} ac` : "-- ac";
+}
+
+function setSaveStatus(text) {
+  saveStatus.textContent = text;
+}
+
 function finishDraftExclusion() {
   if (draftExclusion.length < 3) return;
   exclusions.push([...draftExclusion]);
@@ -365,6 +589,7 @@ function writeMetrics() {
   const gross = areaAcres(boundary);
   const excluded = exclusions.reduce((sum, path) => sum + areaAcres(path), 0);
   const net = Math.max(gross - excluded, 0);
+  writeBuildingMetrics();
   setText("dotCount", boundary.length);
   setText("grossArea", `${gross.toFixed(1)} ac`);
   setText("excludedArea", `${excluded.toFixed(1)} ac`);
@@ -373,7 +598,7 @@ function writeMetrics() {
 
   if (optimizedLayout) {
     setText("padArea", `${optimizedLayout.padAcres.toFixed(1)} ac`);
-    setText("hallCount", optimizedLayout.halls.length);
+    setText("hallCount", optimizedLayout.totalBuildings || optimizedLayout.halls.length);
     setText("angle", `${optimizedLayout.angleDegrees.toFixed(0)}deg`);
     setText("mwEstimate", `${optimizedLayout.estimatedMw} MW`);
     setText("utilization", `${optimizedLayout.padUtilization}%`);
@@ -428,7 +653,7 @@ function normalize(latLng) {
   };
 }
 
-function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced) {
+function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced, config = buildingConfig) {
   if (poly.length < 3) return null;
   const projection = createProjection(poly);
   const xyBoundary = poly.map(projection.toXY);
@@ -446,7 +671,9 @@ function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced) {
   const drive = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.minY + driveDepth };
   const yard = { minX: best.maxX - yardWidth, maxX: best.maxX, minY: drive.maxY, maxY: best.maxY };
   const zone = { minX: best.minX + gap, maxX: yard.minX - gap, minY: drive.maxY + gap, maxY: best.maxY - gap };
-  const hallRects = splitHalls(zone, width, height, scenario);
+  const hallPlan = splitHalls(zone, width, height, scenario, config);
+  const hallRects = hallPlan.halls;
+  if (!hallRects.length) return null;
   const hallAcres = hallRects.reduce((sum, rect) => sum + ((rect.maxX - rect.minX) * (rect.maxY - rect.minY)) / 43560, 0);
   const padAcres = best.area / 43560;
   const padUtilization = padAcres ? Math.round((hallAcres / padAcres) * 100) : 0;
@@ -459,6 +686,19 @@ function optimizeLatLng(poly, holes, scenario = FIT_SCENARIOS.balanced) {
     drive: toLatLngRect(drive),
     yard: toLatLngRect(yard),
     halls: hallRects.map(toLatLngRect),
+    buildingConfig: { ...config },
+    connectedWidthFt: Math.round(hallPlan.connectedWidthFt),
+    clusterCounts: hallPlan.clusterCounts,
+    clusterWidthsFt: hallPlan.clusterWidthsFt.map(Math.round),
+    minClusterWidthFt: Math.round(Math.min(...hallPlan.clusterWidthsFt)),
+    maxClusterWidthFt: Math.round(Math.max(...hallPlan.clusterWidthsFt)),
+    buildingLengthFt: Math.round(hallPlan.buildingLengthFt),
+    requestedConnectedBuildings: config.connectedBuildings,
+    actualConnectedBuildings: hallPlan.actualConnectedBuildings,
+    requestedRows: config.rows,
+    actualRows: hallPlan.actualRows,
+    rowGapFt: hallPlan.rowGapFt,
+    totalBuildings: hallPlan.clusterCounts.reduce((sum, count) => sum + count, 0),
     hallAcres,
     padAcres,
     padUtilization,
@@ -499,28 +739,77 @@ function findBestRect(boundaryXY, holesXY, scenario = FIT_SCENARIOS.balanced) {
   return best;
 }
 
-function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced) {
+function splitHalls(zone, width, height, scenario = FIT_SCENARIOS.balanced, config = buildingConfig) {
   const zoneWidth = Math.max(zone.maxX - zone.minX, 0);
   const zoneHeight = Math.max(zone.maxY - zone.minY, 0);
-  if (zoneWidth < 45 || zoneHeight < 45) return [];
-  const cols = scenario === FIT_SCENARIOS.dense ? (zoneWidth > 640 ? 4 : zoneWidth > 280 ? 3 : zoneWidth > 150 ? 2 : 1) : zoneWidth > 520 ? 3 : zoneWidth > 220 ? 2 : 1;
-  const rows = scenario === FIT_SCENARIOS.dense ? (zoneHeight > 420 ? 3 : zoneHeight > 220 ? 2 : 1) : zoneHeight > 360 ? 2 : 1;
-  const minPadDimension = Math.min(width, height);
-  const gap = clampAvailable(minPadDimension * scenario.gapRatio, Math.min(8, minPadDimension * scenario.gapRatio), Math.min(24, minPadDimension * 0.06));
-  const hallWidth = (zoneWidth - gap * (cols - 1)) / cols;
-  const hallHeight = (zoneHeight - gap * (rows - 1)) / rows;
+  const emptyPlan = {
+    halls: [],
+    actualRows: 0,
+    actualConnectedBuildings: 0,
+    connectedWidthFt: 0,
+    buildingLengthFt: config.buildingLengthFt,
+    rowGapFt: config.rowGapFt,
+    clusterCounts: [],
+    clusterWidthsFt: [],
+  };
+  if (zoneWidth < 20 || zoneHeight < 20) return emptyPlan;
+
+  const requestedBuildings = Math.max(1, Math.round(config.connectedBuildings));
+  const requestedRows = Math.max(1, Math.round(config.rows));
+  const firstWidth = clamp(config.firstWidthFt, 1, zoneWidth);
+  const additionalWidth = Math.max(0, config.additionalWidthFt);
+  const maxBuildingsByWidth = additionalWidth > 0
+    ? Math.max(1, Math.floor(Math.max(0, zoneWidth - firstWidth) / additionalWidth) + 1)
+    : requestedBuildings;
+  const maxConnectedBuildings = Math.max(1, Math.min(requestedBuildings, maxBuildingsByWidth));
+  const rowGapFt = Math.max(0, config.rowGapFt);
+  const requestedLength = Math.max(1, config.buildingLengthFt);
+  const maxRowsByHeight = Math.max(1, Math.floor((zoneHeight + rowGapFt) / (requestedLength + rowGapFt)));
+  const actualRows = Math.max(1, Math.min(requestedRows, maxRowsByHeight, scenario.maxHalls));
+  const buildingLengthFt = Math.max(1, Math.min(requestedLength, (zoneHeight - rowGapFt * (actualRows - 1)) / actualRows));
+  const clusterCounts = distributeClusterCounts(actualRows, maxConnectedBuildings, scenario.maxHalls);
+  const clusterWidthsFt = clusterCounts.map((count) => firstWidth + Math.max(0, count - 1) * additionalWidth);
+  const connectedWidthFt = Math.max(...clusterWidthsFt);
+  const totalHeight = buildingLengthFt * actualRows + rowGapFt * (actualRows - 1);
+  const startY = zone.minY + Math.max(0, (zoneHeight - totalHeight) / 2);
   const halls = [];
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      halls.push({
-        minX: zone.minX + col * (hallWidth + gap),
-        maxX: zone.minX + col * (hallWidth + gap) + hallWidth,
-        minY: zone.minY + row * (hallHeight + gap),
-        maxY: zone.minY + row * (hallHeight + gap) + hallHeight,
-      });
+  for (let row = 0; row < actualRows; row++) {
+    const rowWidth = clusterWidthsFt[row];
+    const startX = zone.minX + (zoneWidth - rowWidth) / 2;
+    const minY = startY + row * (buildingLengthFt + rowGapFt);
+    halls.push({
+      minX: startX,
+      maxX: startX + rowWidth,
+      minY,
+      maxY: minY + buildingLengthFt,
+    });
+  }
+  return {
+    halls,
+    actualRows,
+    actualConnectedBuildings: Math.max(...clusterCounts),
+    connectedWidthFt,
+    buildingLengthFt,
+    rowGapFt,
+    clusterCounts,
+    clusterWidthsFt,
+  };
+}
+
+function distributeClusterCounts(rowCount, maxConnectedBuildings, maxTotalBuildings) {
+  const rows = Array.from({ length: rowCount }, () => 1);
+  let remaining = Math.max(0, Math.min(maxTotalBuildings, rowCount * maxConnectedBuildings) - rowCount);
+  const fillOrder = rows
+    .map((_, index) => index)
+    .sort((a, b) => Math.abs(a - (rowCount - 1) / 2) - Math.abs(b - (rowCount - 1) / 2));
+
+  for (const rowIndex of fillOrder) {
+    while (remaining > 0 && rows[rowIndex] < maxConnectedBuildings) {
+      rows[rowIndex] += 1;
+      remaining -= 1;
     }
   }
-  return halls.slice(0, scenario.maxHalls);
+  return rows;
 }
 
 function createProjection(points) {
@@ -681,4 +970,7 @@ function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
+applyBuildingInputs();
+writeBuildingMetrics();
+loadSavedLayouts();
 loadGoogleMaps();
